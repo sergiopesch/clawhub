@@ -42,6 +42,11 @@ type LocalDeploymentConfig = {
   deploymentName: string;
 };
 
+type LocalDeploymentTarget = {
+  url: string;
+  adminKey: string;
+};
+
 const managedChildren = new Set<ChildProcess>();
 const tempDir = mkdtempSync(join(tmpdir(), "clawhub-pw-local-auth-"));
 const envFile = join(tempDir, ".env.local");
@@ -406,7 +411,7 @@ async function runConvexFunctionWhenReady(
   functionName: string,
   args: Record<string, unknown>,
   env: NodeJS.ProcessEnv,
-  options: { push?: boolean } = {},
+  options: { push?: boolean; target?: LocalDeploymentTarget } = {},
 ) {
   const startedAt = Date.now();
   while (true) {
@@ -416,6 +421,9 @@ async function runConvexFunctionWhenReady(
         "convex",
         "run",
         ...(options.push ? ["--push"] : []),
+        ...(options.target
+          ? ["--url", options.target.url, "--admin-key", options.target.adminKey]
+          : []),
         "--typecheck",
         "disable",
         "--codegen",
@@ -566,10 +574,27 @@ async function main() {
     { name: "SITE_URL", value: appUrl },
   ]);
 
-  console.log("Waiting for local Convex functions.");
-  await runConvexFunctionWhenReady("appMeta:getDeploymentInfo", {}, e2eEnv);
+  let httpTarget: LocalDeploymentTarget | undefined;
+  if (runnerConfig.mode === "http") {
+    const localConfig = readLocalDeploymentConfig();
+    if (!localConfig) throw new Error("Missing disposable local Convex credentials for HTTP e2e");
+    // Explicit selection keeps inherited cloud credentials from redirecting the local seed.
+    httpTarget = { url: convexUrl, adminKey: localConfig.adminKey };
+  }
 
-  console.log("Building ClawHub for local-auth Playwright e2e.");
+  console.log("Waiting for local Convex functions.");
+  await runConvexFunctionWhenReady("appMeta:getDeploymentInfo", {}, e2eEnv, {
+    target: httpTarget,
+  });
+
+  if (runnerConfig.mode === "http") {
+    console.log("Seeding public local fixtures for HTTP and CLI e2e.");
+    await runConvexFunctionWhenReady("devSeed:seedLocalFixtures", {}, e2eEnv, {
+      target: httpTarget,
+    });
+  }
+
+  console.log("Building ClawHub for local e2e.");
   runRequired("bun", ["run", "build"], e2eEnv);
 
   console.log(`Starting preview server at ${appUrl}.`);
@@ -580,11 +605,23 @@ async function main() {
   );
   await waitUntilReachable(previewReadyUrl, "Preview server", previewProcess);
 
-  runRequired("bunx", ["playwright", "test", ...runnerConfig.playwrightArgs], {
-    ...e2eEnv,
-    PLAYWRIGHT_BASE_URL: appUrl,
-    PLAYWRIGHT_WORKERS: "1",
-  });
+  if (runnerConfig.mode === "http") {
+    runRequired("bun", ["run", "test:e2e:http"], {
+      ...e2eEnv,
+      CLAWHUB_E2E_SITE: appUrl,
+      CLAWHUB_E2E_CANONICAL_SITE: appUrl,
+      CLAWHUB_SITE: appUrl,
+      CLAWHUB_REGISTRY: appUrl,
+      CLAWHUB_E2E_SKILL_SLUG: "local-agentic-risk-demo",
+      CLAWHUB_E2E_SKILL_OWNER: "local",
+    });
+  } else {
+    runRequired("bunx", ["playwright", "test", ...runnerConfig.playwrightArgs], {
+      ...e2eEnv,
+      PLAYWRIGHT_BASE_URL: appUrl,
+      PLAYWRIGHT_WORKERS: "1",
+    });
+  }
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

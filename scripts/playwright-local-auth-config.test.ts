@@ -5,6 +5,15 @@ import {
 } from "./playwright-local-auth-config";
 
 describe("playwright local-auth runner config", () => {
+  it("selects the real local HTTP harness without accepting browser arguments", () => {
+    expect(resolveLocalAuthRunnerConfig({}, ["--http"]).mode).toBe("http");
+    expect(resolveLocalAuthRunnerConfig({}, ["--", "--http"]).mode).toBe("http");
+    expect(resolveLocalAuthRunnerConfig({}).mode).toBe("playwright");
+    expect(() => resolveLocalAuthRunnerConfig({}, ["--http", "--project=chromium"])).toThrow(
+      "does not accept Playwright arguments",
+    );
+  });
+
   it("defaults local-auth Convex to the anonymous deployment marker", () => {
     expect(resolveLocalAuthDeployment(undefined, null)).toBe("anonymous:anonymous-agent");
     expect(resolveLocalAuthDeployment(undefined, undefined)).toBe("anonymous:anonymous-agent");

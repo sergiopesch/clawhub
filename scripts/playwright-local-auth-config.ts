@@ -7,6 +7,7 @@ const DEFAULT_PLAYWRIGHT_RETRIES = "1";
 type RunnerEnv = Record<string, string | undefined>;
 
 export type LocalAuthRunnerConfig = {
+  mode: "playwright" | "http";
   convexDeployment: string | undefined;
   convexSiteUrl: string;
   convexUrl: string;
@@ -35,8 +36,14 @@ export function resolveLocalAuthRunnerConfig(
   env: RunnerEnv = process.env,
   argv: string[] = process.argv.slice(2),
 ): LocalAuthRunnerConfig {
-  const playwrightArgs = stripPackageManagerSeparator(argv);
+  const args = stripPackageManagerSeparator(argv);
+  const mode = args[0] === "--http" ? "http" : "playwright";
+  if (mode === "http" && args.length !== 1) {
+    throw new Error("The local HTTP gate does not accept Playwright arguments");
+  }
+  const playwrightArgs = mode === "http" ? [] : args;
   return {
+    mode,
     convexDeployment: env.PLAYWRIGHT_LOCAL_AUTH_CONVEX_DEPLOYMENT,
     convexSiteUrl: env.PLAYWRIGHT_LOCAL_AUTH_CONVEX_SITE_URL ?? DEFAULT_CONVEX_SITE_URL,
     convexUrl: env.PLAYWRIGHT_LOCAL_AUTH_CONVEX_URL ?? DEFAULT_CONVEX_URL,
