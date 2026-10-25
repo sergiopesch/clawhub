@@ -498,7 +498,7 @@ async function main() {
     SITE_URL: appUrl,
     VITE_CONVEX_SITE_URL: convexSiteUrl,
     VITE_CONVEX_URL: convexUrl,
-    VITE_ENABLE_DEV_AUTH: "1",
+    VITE_ENABLE_DEV_AUTH: runnerConfig.frontendDevAuth,
     VITE_SITE_URL: appUrl,
   };
   if (deployment) {
@@ -524,7 +524,7 @@ async function main() {
       `SITE_URL=${appUrl}`,
       `VITE_CONVEX_SITE_URL=${convexSiteUrl}`,
       `VITE_CONVEX_URL=${convexUrl}`,
-      "VITE_ENABLE_DEV_AUTH=1",
+      `VITE_ENABLE_DEV_AUTH=${e2eEnv.VITE_ENABLE_DEV_AUTH}`,
       `VITE_SITE_URL=${appUrl}`,
       "",
     ].join("\n"),
@@ -574,23 +574,24 @@ async function main() {
     { name: "SITE_URL", value: appUrl },
   ]);
 
-  let httpTarget: LocalDeploymentTarget | undefined;
-  if (runnerConfig.mode === "http") {
+  let localTarget: LocalDeploymentTarget | undefined;
+  if (runnerConfig.mode !== "playwright") {
     const localConfig = readLocalDeploymentConfig();
-    if (!localConfig) throw new Error("Missing disposable local Convex credentials for HTTP e2e");
+    if (!localConfig)
+      throw new Error("Missing disposable local Convex credentials for fixture e2e");
     // Explicit selection keeps inherited cloud credentials from redirecting the local seed.
-    httpTarget = { url: convexUrl, adminKey: localConfig.adminKey };
+    localTarget = { url: convexUrl, adminKey: localConfig.adminKey };
   }
 
   console.log("Waiting for local Convex functions.");
   await runConvexFunctionWhenReady("appMeta:getDeploymentInfo", {}, e2eEnv, {
-    target: httpTarget,
+    target: localTarget,
   });
 
-  if (runnerConfig.mode === "http") {
-    console.log("Seeding public local fixtures for HTTP and CLI e2e.");
+  if (runnerConfig.mode !== "playwright") {
+    console.log("Seeding public local fixtures for candidate e2e.");
     await runConvexFunctionWhenReady("devSeed:seedLocalFixtures", {}, e2eEnv, {
-      target: httpTarget,
+      target: localTarget,
     });
   }
 
@@ -619,7 +620,9 @@ async function main() {
     runRequired("bunx", ["playwright", "test", ...runnerConfig.playwrightArgs], {
       ...e2eEnv,
       PLAYWRIGHT_BASE_URL: appUrl,
-      PLAYWRIGHT_WORKERS: "1",
+      ...(runnerConfig.mode === "smoke"
+        ? { CLAWHUB_E2E_SKILL_SLUG: "local-agentic-risk-demo" }
+        : { PLAYWRIGHT_WORKERS: "1" }),
     });
   }
 }

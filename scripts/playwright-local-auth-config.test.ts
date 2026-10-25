@@ -5,6 +5,30 @@ import {
 } from "./playwright-local-auth-config";
 
 describe("playwright local-auth runner config", () => {
+  it("keeps frontend dev auth disabled for public smoke while preserving authenticated modes", () => {
+    expect(resolveLocalAuthRunnerConfig({}, ["--smoke"]).frontendDevAuth).toBe("0");
+    expect(
+      resolveLocalAuthRunnerConfig({ VITE_ENABLE_DEV_AUTH: "1" }, ["--smoke"]).frontendDevAuth,
+    ).toBe("0");
+    expect(resolveLocalAuthRunnerConfig({}).frontendDevAuth).toBe("1");
+    expect(resolveLocalAuthRunnerConfig({}, ["--http"]).frontendDevAuth).toBe("1");
+  });
+
+  it("runs both public smoke files without changing their native retries", () => {
+    expect(resolveLocalAuthRunnerConfig({}, ["--smoke"])).toMatchObject({
+      mode: "smoke",
+      playwrightArgs: [
+        "--project=chromium",
+        "e2e/ci-smoke.pw.test.ts",
+        "e2e/public-routes-smoke.pw.test.ts",
+      ],
+    });
+    expect(resolveLocalAuthRunnerConfig({}, ["--", "--smoke"]).mode).toBe("smoke");
+    expect(() => resolveLocalAuthRunnerConfig({}, ["--smoke", "--retries=0"])).toThrow(
+      "does not accept Playwright arguments",
+    );
+  });
+
   it("selects the real local HTTP harness without accepting browser arguments", () => {
     expect(resolveLocalAuthRunnerConfig({}, ["--http"]).mode).toBe("http");
     expect(resolveLocalAuthRunnerConfig({}, ["--", "--http"]).mode).toBe("http");
