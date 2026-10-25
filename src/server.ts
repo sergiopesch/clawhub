@@ -14,13 +14,13 @@ function createNonce() {
 }
 
 const fetch = createStartHandler(async (ctx) => {
-  const nonce = createNonce();
+  const nonce = ctx.router.options.ssr?.nonce;
+  if (!nonce) throw new Error("Missing request nonce before SSR bootstrap generation");
   ctx.router.update({
     context: {
       ...ctx.router.options.context,
       initialThemeMode: getThemeModeFromCookieHeader(ctx.request.headers.get("cookie")),
     },
-    ssr: { nonce },
   });
   ctx.responseHeaders.set(
     "Content-Security-Policy",
@@ -35,8 +35,11 @@ type ServerEntry = { fetch: RequestHandler<Register> };
 
 function createServerEntry(entry: ServerEntry): ServerEntry {
   return {
-    async fetch(...args) {
-      return await entry.fetch(...args);
+    async fetch(request, options) {
+      return await entry.fetch(request, {
+        ...options,
+        context: { ...options?.context, nonce: createNonce() },
+      });
     },
   };
 }

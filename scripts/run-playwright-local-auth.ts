@@ -42,6 +42,11 @@ type LocalDeploymentConfig = {
   deploymentName: string;
 };
 
+type LocalDeploymentTarget = {
+  url: string;
+  adminKey: string;
+};
+
 const managedChildren = new Set<ChildProcess>();
 const tempDir = mkdtempSync(join(tmpdir(), "clawhub-pw-local-auth-"));
 const envFile = join(tempDir, ".env.local");
@@ -406,7 +411,7 @@ async function runConvexFunctionWhenReady(
   functionName: string,
   args: Record<string, unknown>,
   env: NodeJS.ProcessEnv,
-  options: { push?: boolean } = {},
+  options: { push?: boolean; target?: LocalDeploymentTarget } = {},
 ) {
   const startedAt = Date.now();
   while (true) {
@@ -416,6 +421,9 @@ async function runConvexFunctionWhenReady(
         "convex",
         "run",
         ...(options.push ? ["--push"] : []),
+        ...(options.target
+          ? ["--url", options.target.url, "--admin-key", options.target.adminKey]
+          : []),
         "--typecheck",
         "disable",
         "--codegen",
@@ -490,7 +498,7 @@ async function main() {
     SITE_URL: appUrl,
     VITE_CONVEX_SITE_URL: convexSiteUrl,
     VITE_CONVEX_URL: convexUrl,
-    VITE_ENABLE_DEV_AUTH: "1",
+    VITE_ENABLE_DEV_AUTH: runnerConfig.frontendDevAuth,
     VITE_SITE_URL: appUrl,
   };
   if (deployment) {
@@ -516,7 +524,7 @@ async function main() {
       `SITE_URL=${appUrl}`,
       `VITE_CONVEX_SITE_URL=${convexSiteUrl}`,
       `VITE_CONVEX_URL=${convexUrl}`,
-      "VITE_ENABLE_DEV_AUTH=1",
+      `VITE_ENABLE_DEV_AUTH=${e2eEnv.VITE_ENABLE_DEV_AUTH}`,
       `VITE_SITE_URL=${appUrl}`,
       "",
     ].join("\n"),
@@ -566,10 +574,28 @@ async function main() {
     { name: "SITE_URL", value: appUrl },
   ]);
 
-  console.log("Waiting for local Convex functions.");
-  await runConvexFunctionWhenReady("appMeta:getDeploymentInfo", {}, e2eEnv);
+  let localTarget: LocalDeploymentTarget | undefined;
+  if (runnerConfig.mode !== "playwright") {
+    const localConfig = readLocalDeploymentConfig();
+    if (!localConfig)
+      throw new Error("Missing disposable local Convex credentials for fixture e2e");
+    // Explicit selection keeps inherited cloud credentials from redirecting the local seed.
+    localTarget = { url: convexUrl, adminKey: localConfig.adminKey };
+  }
 
-  console.log("Building ClawHub for local-auth Playwright e2e.");
+  console.log("Waiting for local Convex functions.");
+  await runConvexFunctionWhenReady("appMeta:getDeploymentInfo", {}, e2eEnv, {
+    target: localTarget,
+  });
+
+  if (runnerConfig.mode !== "playwright") {
+    console.log("Seeding public local fixtures for candidate e2e.");
+    await runConvexFunctionWhenReady("devSeed:seedLocalFixtures", {}, e2eEnv, {
+      target: localTarget,
+    });
+  }
+
+  console.log("Building ClawHub for local e2e.");
   runRequired("bun", ["run", "build"], e2eEnv);
 
   console.log(`Starting preview server at ${appUrl}.`);
@@ -580,11 +606,25 @@ async function main() {
   );
   await waitUntilReachable(previewReadyUrl, "Preview server", previewProcess);
 
-  runRequired("bunx", ["playwright", "test", ...runnerConfig.playwrightArgs], {
-    ...e2eEnv,
-    PLAYWRIGHT_BASE_URL: appUrl,
-    PLAYWRIGHT_WORKERS: "1",
-  });
+  if (runnerConfig.mode === "http") {
+    runRequired("bun", ["run", "test:e2e:http"], {
+      ...e2eEnv,
+      CLAWHUB_E2E_SITE: appUrl,
+      CLAWHUB_E2E_CANONICAL_SITE: appUrl,
+      CLAWHUB_SITE: appUrl,
+      CLAWHUB_REGISTRY: appUrl,
+      CLAWHUB_E2E_SKILL_SLUG: "local-agentic-risk-demo",
+      CLAWHUB_E2E_SKILL_OWNER: "local",
+    });
+  } else {
+    runRequired("bunx", ["playwright", "test", ...runnerConfig.playwrightArgs], {
+      ...e2eEnv,
+      PLAYWRIGHT_BASE_URL: appUrl,
+      ...(runnerConfig.mode === "smoke"
+        ? { CLAWHUB_E2E_SKILL_SLUG: "local-agentic-risk-demo" }
+        : { PLAYWRIGHT_WORKERS: "1" }),
+    });
+  }
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

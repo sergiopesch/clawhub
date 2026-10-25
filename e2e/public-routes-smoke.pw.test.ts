@@ -44,7 +44,8 @@ async function getSeedFixture(request: APIRequestContext, path: string) {
 }
 
 async function fetchSeedFixtures(request: APIRequestContext): Promise<SeedFixtures> {
-  const skillPath = "/api/v1/skills/gifgrep";
+  const fixtureSlug = process.env.CLAWHUB_E2E_SKILL_SLUG?.trim() || "gifgrep";
+  const skillPath = `/api/v1/skills/${encodeURIComponent(fixtureSlug)}`;
   const skillResponse = await getSeedFixture(request, skillPath);
   expect(
     skillResponse.ok(),
@@ -57,9 +58,9 @@ async function fetchSeedFixtures(request: APIRequestContext): Promise<SeedFixtur
   const ownerHandle = skillPayload.owner?.handle?.trim();
   const skillSlug = skillPayload.skill?.slug?.trim();
   const skillDisplayName = skillPayload.skill?.displayName?.trim();
-  expect(ownerHandle, "gifgrep seed fixture needs an owner handle").toBeTruthy();
-  expect(skillSlug, "gifgrep seed fixture needs a slug").toBeTruthy();
-  expect(skillDisplayName, "gifgrep seed fixture needs a display name").toBeTruthy();
+  expect(ownerHandle, `${fixtureSlug} seed fixture needs an owner handle`).toBeTruthy();
+  expect(skillSlug, `${fixtureSlug} seed fixture needs a slug`).toBeTruthy();
+  expect(skillDisplayName, `${fixtureSlug} seed fixture needs a display name`).toBeTruthy();
 
   const pluginPath = "/api/v1/plugins?limit=1";
   const pluginResponse = await getSeedFixture(request, pluginPath);

@@ -143,6 +143,11 @@ function loadMermaid(): Promise<MermaidApi> {
         startOnLoad: false,
         securityLevel: "strict",
         theme: "neutral",
+        // Preserve the existing diagram appearance when upstream defaults change.
+        look: "classic",
+        layout: "dagre",
+        flowchart: { wrappingWidth: 200, minNodeWidth: 0 },
+        state: { wrappingWidth: 200, minNodeWidth: 0 },
       });
       return mermaid;
     });
